@@ -1,13 +1,16 @@
 package com.alcode.service;
 
 import com.alcode.config.BotConfig;
+import com.alcode.sentHistory.SentHistoryService;
 import com.alcode.user.UsersService;
 import com.alcode.userFollowers.UserFollowerService;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.api.methods.commands.SetMyCommands;
 
+import org.telegram.telegrambots.meta.api.methods.groupadministration.ExportChatInviteLink;
 import org.telegram.telegrambots.meta.api.methods.groupadministration.GetChatMember;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.methods.send.SendPhoto;
@@ -30,10 +33,16 @@ public class TelegramBot extends TelegramLongPollingBot {
     private final UsersService usersService;
     private final UserFollowerService userFollowerService;
 
-    public TelegramBot(BotConfig config, UsersService usersService, UserFollowerService userFollowerService) {
+    private final SentHistoryService sentHistoryService;
+
+    @Value("${group.id}")
+    private Long groupId;
+
+    public TelegramBot(BotConfig config, UsersService usersService, UserFollowerService userFollowerService, SentHistoryService sentHistoryService) {
         this.config = config;
         this.usersService = usersService;
         this.userFollowerService = userFollowerService;
+        this.sentHistoryService = sentHistoryService;
 
         List<BotCommand> listOfCommands = new ArrayList<>();
         listOfCommands.add(new BotCommand("/start", "Boshlash"));
@@ -57,8 +66,10 @@ public class TelegramBot extends TelegramLongPollingBot {
 
     @Override
     public void onUpdateReceived(Update update) {
+//        System.out.println(update.getMessage().getViaBot().getFirstName());
         if (update.hasMessage()) {
             long chatId = update.getMessage().getChatId();
+
             if (update.getMessage().getChat().getType().equals("supergroup")) {
                 // DO NOTHING CHANNEL CHAT ID IS -1001764816733
                 return;
@@ -180,7 +191,7 @@ public class TelegramBot extends TelegramLongPollingBot {
             CallbackQuery callbackQuery = update.getCallbackQuery();
             String data = callbackQuery.getData();
             if (data.equals("/check")) {
-                if (isSubscribed("@testarticle365", chatId)) {
+                if (isSubscribed("@articles365", chatId)) {
                     deleteMessageById(update.getCallbackQuery().getMessage().getChatId(), update.getCallbackQuery().getMessage().getMessageId());
 
                     System.out.println(userId);
@@ -194,7 +205,11 @@ public class TelegramBot extends TelegramLongPollingBot {
                         int count = 2 - (userFollowerService.getCount(fromId));
 
                         if (count == 0) {
-                            sendMessage(fromId, "Malades!");
+                            if (!sentHistoryService.isSent(chatId)) {
+                                sendInviteLink(update.getMessage().getChatId());
+
+                                sentHistoryService.create(chatId);
+                            }
                         } else if (count > 0) {
                             sendMessage(fromId, "Bir dona obunachi qo'shildi! " + count + " dona qoldi!");
                         }
@@ -296,6 +311,18 @@ public class TelegramBot extends TelegramLongPollingBot {
         }
     }
 
+    private void sendInviteLink(Long chatId) {
+        ExportChatInviteLink exportChatInviteLink = new ExportChatInviteLink(String.valueOf(groupId));
+        try {
+            String inviteLink = execute(exportChatInviteLink);
+
+            ChatInviteLink chatInviteLink = new ChatInviteLink(inviteLink, getMe(), true, true, 2024, 1, "Link", 100, true);
+            sendMessage(chatId, "Invite link: " + chatInviteLink.getInviteLink());
+        } catch (TelegramApiException e) {
+            e.printStackTrace();
+        }
+    }
+
     private void helpCommandReceived(long chatId, String firstName) {
     }
 
@@ -334,4 +361,5 @@ public class TelegramBot extends TelegramLongPollingBot {
             e.printStackTrace();
         }
     }
+
 }
